@@ -220,7 +220,16 @@ P4,15,12,2</textarea>
     </div>
 
     <script>
-        // Função auxiliar para adicionar um bloco a um array de Gantt.
+        // --- FUNÇÕES AUXILIARES ---
+
+        /**
+         * Adiciona um bloco de execução a um array de histórico do Gantt.
+         * Se o último bloco for do mesmo processo, ele apenas aumenta a duração (merge).
+         * Isso evita criar múltiplos pequenos blocos para o mesmo processo em sequência.
+         * @param {Array} ganttArray - O array de histórico (ex: gantt.geral, gantt.q1).
+         * @param {string} id - O ID do processo ou "Ocioso".
+         * @param {number} duration - A duração da execução.
+         */
         function addGanttBlock(ganttArray, id, duration) {
             if (duration <= 0) return;
             if (ganttArray.length > 0 && ganttArray[ganttArray.length - 1].id === id) {
@@ -230,26 +239,41 @@ P4,15,12,2</textarea>
             }
         }
 
+        // --- LÓGICA PRINCIPAL DA SIMULAÇÃO ---
+
+        // Adiciona um "ouvinte de evento" ao botão. Quando o botão é clicado, a função inteira abaixo é executada.
         document.getElementById('run-simulation').addEventListener('click', () => {
-            // --- 1. OBTER E VALIDAR ENTRADAS ---
+            
+            // --- 1. OBTER E VALIDAR ENTRADAS DO USUÁRIO ---
+            // Pega os valores dos campos de input do HTML.
             const quantum1 = parseInt(document.getElementById('quantum1').value);
             const quantum2 = parseInt(document.getElementById('quantum2').value);
             const agingTime = parseInt(document.getElementById('agingTime').value);
+            // Pega o texto da área de processos e quebra em linhas.
             const processesInput = document.getElementById('processes').value.trim().split('\n');
             
+            // Validação simples para garantir que os números são válidos.
             if (isNaN(quantum1) || isNaN(quantum2) || quantum1 <= 0 || quantum2 <= 0 || isNaN(agingTime) || agingTime < 0) {
                 alert("Os valores de Quantum e Tempo de Boost devem ser números positivos.");
                 return;
             }
 
+            // Converte cada linha de texto em um objeto de processo estruturado.
+            // Cada objeto contém todas as informações necessárias para a simulação.
             const processes = processesInput.map(line => {
                 const parts = line.split(',');
-                if (parts.length !== 4) return null;
+                if (parts.length !== 4) return null; // Ignora linhas mal formatadas.
                 const priority = parseInt(parts[3]);
                 return {
-                    id: parts[0].trim(), arrivalTime: parseInt(parts[1]), burstTime: parseInt(parts[2]),
-                    priority: Math.max(1, Math.min(3, priority)), remainingTime: parseInt(parts[2]),
-                    completionTime: 0, waitingTime: 0, turnaroundTime: 0, lastExecutionTime: parseInt(parts[1])
+                    id: parts[0].trim(),
+                    arrivalTime: parseInt(parts[1]),
+                    burstTime: parseInt(parts[2]),
+                    priority: Math.max(1, Math.min(3, priority)), // Garante que a prioridade seja 1, 2 ou 3.
+                    remainingTime: parseInt(parts[2]), // Tempo restante de execução, começa igual ao burst.
+                    completionTime: 0,
+                    waitingTime: 0,
+                    turnaroundTime: 0,
+                    lastExecutionTime: parseInt(parts[1]) // Usado para calcular o tempo de espera para o 'aging'.
                 };
             }).filter(p => p && !isNaN(p.arrivalTime) && !isNaN(p.burstTime) && p.burstTime > 0);
 
@@ -258,92 +282,122 @@ P4,15,12,2</textarea>
                 return;
             }
             
+            // Ordena a lista de processos por tempo de chegada, do menor para o maior.
             processes.sort((a, b) => a.arrivalTime - b.arrivalTime);
             
-            // --- 2. INICIALIZAÇÃO DA SIMULAÇÃO ---
-            let currentTime = 0;
-            let completedProcesses = 0;
-            const processMap = new Map(processes.map(p => [p.id, JSON.parse(JSON.stringify(p))]));
-            const queues = [[], [], []];
+            // --- 2. INICIALIZAÇÃO DAS VARIÁVEIS DA SIMULAÇÃO ---
+            let currentTime = 0; // Relógio global da simulação.
+            let completedProcesses = 0; // Contador de processos finalizados.
+            // Cria um "mapa" para guardar as estatísticas finais de cada processo.
+            const processMap = new Map(processes.map(p => [p.id, JSON.parse(JSON.stringify(p))])); 
+            const queues = [[], [], []]; // As três filas de prioridade (Fila 1, 2 e 3).
+            // Objeto para armazenar o histórico de execução para os gráficos de Gantt.
             const gantt = { geral: [], q1: [], q2: [], q3: [] };
-            let processIndex = 0;
+            let processIndex = 0; // Índice para percorrer a lista de processos que ainda não chegaram.
 
             // --- 3. LOOP PRINCIPAL DA SIMULAÇÃO ---
+            // O loop continua enquanto houver processos para serem executados.
             while (completedProcesses < processes.length) {
+                
+                // **PASSO A: ADICIONAR NOVOS PROCESSOS**
+                // Verifica se algum processo chegou no tempo atual e o adiciona à fila de prioridade correta.
                 while (processIndex < processes.length && processes[processIndex].arrivalTime <= currentTime) {
                     queues[processes[processIndex].priority - 1].push(processes[processIndex]);
                     processIndex++;
                 }
                 
+                // **PASSO B: PROMOÇÃO POR AGING (ENVELHECIMENTO)**
+                // Verifica as filas de baixa prioridade (3 e 2) para processos que estão esperando há muito tempo.
                 if (agingTime > 0) {
-                    for (let i = 2; i > 0; i--) {
+                    for (let i = 2; i > 0; i--) { // Itera da fila mais baixa para a mais alta (exceto a primeira).
+                        // Filtra os processos que ultrapassaram o 'agingTime'.
                         const processesToPromote = queues[i].filter(p => (currentTime - p.lastExecutionTime) >= agingTime);
                         if (processesToPromote.length > 0) {
-                            queues[i] = queues[i].filter(p => !processesToPromote.includes(p));
+                            queues[i] = queues[i].filter(p => !processesToPromote.includes(p)); // Remove da fila atual.
                             processesToPromote.forEach(p => {
-                                p.lastExecutionTime = currentTime;
-                                queues[i - 1].push(p);
+                                p.lastExecutionTime = currentTime; // Reseta o tempo de espera.
+                                queues[i - 1].push(p); // Adiciona na fila de prioridade superior.
                             });
                         }
                     }
                 }
 
+                // **PASSO C: SELECIONAR PROCESSO PARA EXECUTAR**
+                // Procura por um processo, respeitando a prioridade das filas (Fila 1 > Fila 2 > Fila 3).
                 let currentProcess = null;
                 let currentQueueIndex = -1;
                 for (let i = 0; i < 3; i++) {
                     if (queues[i].length > 0) {
-                        currentProcess = queues[i].shift();
+                        currentProcess = queues[i].shift(); // Pega e remove o primeiro processo da fila de maior prioridade.
                         currentQueueIndex = i;
-                        break;
+                        break; // Para a busca assim que encontra um processo.
                     }
                 }
                 
+                // **PASSO D: LIDAR COM OCIOSIDADE**
+                // Se não há nenhum processo pronto para executar, a CPU fica ociosa.
                 if (currentProcess === null) {
                     addGanttBlock(gantt.geral, 'Ocioso', 1);
                     addGanttBlock(gantt.q1, 'Ocioso', 1);
                     addGanttBlock(gantt.q2, 'Ocioso', 1);
                     addGanttBlock(gantt.q3, 'Ocioso', 1);
-                    currentTime++;
-                    continue;
+                    currentTime++; // Avança o relógio.
+                    continue; // Pula para a próxima iteração do loop.
                 }
 
+                // **PASSO E: CALCULAR TEMPO DE EXECUÇÃO**
                 let executionTime = 0;
-                if (currentQueueIndex === 0) { executionTime = Math.min(currentProcess.remainingTime, quantum1); }
-                else if (currentQueueIndex === 1) { executionTime = Math.min(currentProcess.remainingTime, quantum2); }
-                else { executionTime = currentProcess.remainingTime; }
+                if (currentQueueIndex === 0) { // Fila 1 (RR)
+                    executionTime = Math.min(currentProcess.remainingTime, quantum1); 
+                } else if (currentQueueIndex === 1) { // Fila 2 (RR)
+                    executionTime = Math.min(currentProcess.remainingTime, quantum2);
+                } else { // Fila 3 (FCFS)
+                    executionTime = currentProcess.remainingTime; // Executa até o fim.
+                }
 
+                // **PASSO F: REGISTRAR EXECUÇÃO NO GANTT**
                 addGanttBlock(gantt.geral, currentProcess.id, executionTime);
                 const ganttQueues = [gantt.q1, gantt.q2, gantt.q3];
+                // Adiciona o bloco de execução na fila correta.
                 addGanttBlock(ganttQueues[currentQueueIndex], currentProcess.id, executionTime);
-
+                // Adiciona blocos de "Ocioso" nas outras filas para manter a sincronia.
                 for (let i = 0; i < 3; i++) {
                     if (i !== currentQueueIndex) {
                         addGanttBlock(ganttQueues[i], 'Ocioso', executionTime);
                     }
                 }
                 
-                currentTime += executionTime;
-                currentProcess.remainingTime -= executionTime;
-                currentProcess.lastExecutionTime = currentTime;
+                // **PASSO G: ATUALIZAR ESTADO DA SIMULAÇÃO**
+                currentTime += executionTime; // Avança o relógio.
+                currentProcess.remainingTime -= executionTime; // Reduz o tempo restante.
+                currentProcess.lastExecutionTime = currentTime; // Atualiza o último tempo de execução.
                 
-                if (currentProcess.remainingTime <= 0) {
+                // **PASSO H: VERIFICAR SE O PROCESSO TERMINOU OU DEVE SER REBAIXADO**
+                if (currentProcess.remainingTime <= 0) { // Se o processo terminou...
                     completedProcesses++;
                     const stats = processMap.get(currentProcess.id);
                     stats.completionTime = currentTime;
                     stats.turnaroundTime = stats.completionTime - stats.arrivalTime;
                     stats.waitingTime = stats.turnaroundTime - stats.burstTime;
-                } else {
+                } else { // Se o quantum acabou mas o processo não terminou...
+                    // Rebaixa o processo para a próxima fila (no máximo Fila 3).
                     const nextQueue = Math.min(currentQueueIndex + 1, 2);
                     queues[nextQueue].push(currentProcess);
                 }
-            }
+            } // Fim do loop principal
+
+            // --- 4. RENDERIZAR RESULTADOS ---
+            // Após a simulação, chama a função para exibir tudo na tela.
             renderResults(processMap, gantt, processes);
         });
+
+        // --- FUNÇÕES DE RENDERIZAÇÃO (DESENHO NA TELA) ---
 
         const colorPalette = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22', '#34495e'];
         const processColors = {};
         let colorIndex = 0;
 
+        // Atribui uma cor única e consistente para cada ID de processo.
         function getProcessColor(processId) {
             if (!processColors[processId]) {
                 processColors[processId] = colorPalette[colorIndex % colorPalette.length];
@@ -352,20 +406,29 @@ P4,15,12,2</textarea>
             return processColors[processId];
         }
 
+        /**
+         * Função principal de renderização de um único gráfico de Gantt e sua régua.
+         * @param {string} wrapperId - ID do elemento HTML que vai conter o gráfico.
+         * @param {Array} ganttData - O histórico de execução para este gráfico.
+         * @param {number} totalTime - O tempo total da simulação.
+         * @param {Array} originalProcesses - A lista de processos originais.
+         * @param {number} queueFilter - Filtro para mostrar marcadores de chegada (0=geral, 1=fila1, etc.).
+         */
         function renderGantt(wrapperId, ganttData, totalTime, originalProcesses, queueFilter = 0) {
             const wrapper = document.getElementById(wrapperId);
             const ganttContainer = wrapper.querySelector('.gantt-chart-container');
             const timelineContainer = wrapper.querySelector('.timeline-container');
             const markerContainer = wrapper.querySelector('.arrival-marker-container');
             
+            // Limpa o conteúdo anterior antes de desenhar o novo.
             ganttContainer.innerHTML = '';
             timelineContainer.innerHTML = '';
             markerContainer.innerHTML = '';
 
-            // Renderiza as barras do Gantt
+            // Desenha cada barra do gráfico de Gantt.
             ganttData.forEach(item => {
                 const bar = document.createElement('div');
-                const width = (item.duration / totalTime) * 100;
+                const width = (item.duration / totalTime) * 100; // Largura é proporcional ao tempo.
                 bar.style.width = `${width}%`;
                 bar.className = 'gantt-bar';
                 if(width > 2.5) { bar.textContent = item.id; }
@@ -375,20 +438,18 @@ P4,15,12,2</textarea>
                 ganttContainer.appendChild(bar);
             });
 
-            // Renderiza a régua de tempo com intervalos consistentes e "agradáveis"
+            // Desenha a régua de tempo (timeline).
             if (totalTime > 0) {
-                const maxTicks = 30; // Alvo para o número de marcadores na régua
-                const niceIntervals = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500]; // Intervalos "bonitos"
+                // Lógica para criar intervalos "bonitos" e consistentes na régua (ex: de 1 em 1, de 5 em 5).
+                const maxTicks = 30;
+                const niceIntervals = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
                 let tickInterval = 1;
-
-                // Encontra o menor intervalo "bonito" que não sobrecarrega a régua
                 for (const interval of niceIntervals) {
                     if (totalTime / interval <= maxTicks) {
                         tickInterval = interval;
                         break;
                     }
                 }
-                // Se nenhum intervalo "bonito" servir (tempo total muito grande), calcula um.
                 if (totalTime / tickInterval > maxTicks) {
                     const magnitude = Math.pow(10, Math.floor(Math.log10(totalTime / maxTicks)));
                     tickInterval = Math.ceil(totalTime / maxTicks / magnitude) * magnitude;
@@ -398,21 +459,22 @@ P4,15,12,2</textarea>
                 for (let time = 0; time <= totalTime; time += tickInterval) {
                     ticks.add(time);
                 }
-                ticks.add(totalTime); // Garante que o último tick esteja sempre presente.
+                ticks.add(totalTime);
 
+                // Cria um elemento 'div' para cada marcador (tick) da régua.
                 ticks.forEach(time => {
                     const tick = document.createElement('div');
                     tick.className = 'timeline-tick';
                     const percentage = (time / totalTime) * 100;
-                    
                     tick.style.left = `min(calc(${percentage}% - 1px), calc(100% - 15px))`;
                     tick.innerHTML = `<span>${time}</span>`;
                     timelineContainer.appendChild(tick);
                 });
             }
 
-            // Renderiza os marcadores de chegada
+            // Desenha as setas que marcam a chegada de cada processo.
             originalProcesses.forEach(p => {
+                // A seta só é mostrada no gráfico geral (filtro 0) ou na fila de prioridade inicial do processo.
                 if (p.arrivalTime <= totalTime && (queueFilter === 0 || p.priority === queueFilter)) {
                     const marker = document.createElement('div');
                     marker.className = 'arrival-marker';
@@ -425,17 +487,22 @@ P4,15,12,2</textarea>
             });
         }
         
+        /**
+         * Função que orquestra a exibição de todos os resultados na tela.
+         */
         function renderResults(processMap, gantt, originalProcesses) {
-            document.getElementById('results-container').classList.remove('hidden');
-            colorIndex = 0;
+            document.getElementById('results-container').classList.remove('hidden'); // Mostra a área de resultados.
+            colorIndex = 0; // Reseta o índice de cores para a próxima simulação.
             Object.keys(processColors).forEach(key => delete processColors[key]);
 
             const tableBody = document.getElementById('results-table');
             tableBody.innerHTML = '';
             let totalTurnaround = 0;
             let totalWaiting = 0;
+            // Ordena os processos por ID para a tabela de métricas.
             const sortedProcesses = Array.from(processMap.values()).sort((a,b) => a.id.localeCompare(b.id, undefined, {numeric: true}));
 
+            // Preenche a tabela de métricas com os dados calculados.
             sortedProcesses.forEach(p => {
                 totalTurnaround += p.turnaroundTime;
                 totalWaiting += p.waitingTime;
@@ -450,6 +517,7 @@ P4,15,12,2</textarea>
                 tableBody.innerHTML += row;
             });
 
+            // Calcula e exibe as médias.
             const avgTurnaround = totalTurnaround / processMap.size;
             const avgWaiting = totalWaiting / processMap.size;
             document.getElementById('avg-turnaround').textContent = avgTurnaround.toFixed(2);
@@ -457,6 +525,7 @@ P4,15,12,2</textarea>
             
             const totalTime = gantt.geral.reduce((sum, item) => sum + item.duration, 0);
             
+            // Chama a função de renderização para cada um dos quatro gráficos.
             renderGantt('gantt-chart-geral-wrapper', gantt.geral, totalTime, originalProcesses, 0);
             renderGantt('gantt-chart-q1-wrapper', gantt.q1, totalTime, originalProcesses, 1);
             renderGantt('gantt-chart-q2-wrapper', gantt.q2, totalTime, originalProcesses, 2);
