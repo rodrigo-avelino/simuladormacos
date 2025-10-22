@@ -32,7 +32,7 @@
             font-weight: bold;
             font-size: 0.875rem;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-            transition: width 0.3s ease-in-out;
+            /* transition: width 0.3s ease-in-out; */ /* Removido para performance tick-by-tick */
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -125,20 +125,20 @@
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                              <div>
                                 <label for="quantumRR" class="block text-sm font-medium text-gray-700">Quantum (Round Robin)</label>
-                                <input type="number" id="quantumRR" value="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                                <input type="number" id="quantumRR" value="4" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                             </div>
-                            <div>&nbsp;</div> {/* Espaçador */}
+                            
                             <div>
                                 <label for="quantum1" class="block text-sm font-medium text-gray-700">Quantum Fila 1 (MLFQ)</label>
-                                <input type="number" id="quantum1" value="8" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                                <input type="number" id="quantum1" value="8" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                             </div>
                             <div>
                                 <label for="quantum2" class="block text-sm font-medium text-gray-700">Quantum Fila 2 (MLFQ)</label>
-                                <input type="number" id="quantum2" value="16" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                                <input type="number" id="quantum2" value="16" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                             </div>
                              <div>
                                 <label for="agingTime" class="block text-sm font-medium text-gray-700">Tempo de Boost (MLFQ)</label>
-                                <input type="number" id="agingTime" value="40" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" title="Tempo que um processo pode esperar em uma fila baixa antes de ser promovido no MLFQ.">
+                                <input type="number" id="agingTime" value="40" min="0" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" title="Tempo que um processo pode esperar em uma fila baixa antes de ser promovido no MLFQ (0 para desativar).">
                             </div>
                         </div>
                          <button id="run-simulation" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-transform transform hover:scale-105">
@@ -150,10 +150,11 @@
                         <label for="processes" class="block text-sm font-medium text-gray-700">
                             Processos (ID, Chegada, Burst, Prioridade [MLFQ])
                         </label>
-                        <textarea id="processes" rows="8" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 font-mono" placeholder="Exemplo:&#10;P1,0,10,1&#10;P2,2,5,1&#10;P3,4,20,2&#10;P4,5,8,3">P1,0,30,1
-P2,2,5,3
-P3,5,10,1
-P4,15,12,2</textarea>
+                        <textarea id="processes" rows="8" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 font-mono" placeholder="Exemplo:&#10;P1,0,10,1&#10;P2,2,5,1&#10;P3,4,20,2&#10;P4,5,8,3">P1,0,25,1
+P2,2,10,1
+P3,5,8,2
+P4,30,6,1
+P5,1,4,3</textarea>
                          <p class="mt-2 text-xs text-gray-500">A Prioridade (1, 2 ou 3) é usada apenas no algoritmo MLFQ.</p>
                     </div>
                 </div>
@@ -199,10 +200,13 @@ P4,15,12,2</textarea>
          * Se o último bloco for do mesmo processo/estado, mescla os blocos.
          */
         function addGanttBlock(ganttArray, id, duration) {
+            // Não adiciona blocos de duração zero ou negativa
             if (duration <= 0) return;
+            // Se o último bloco é o mesmo, incrementa a duração
             if (ganttArray.length > 0 && ganttArray[ganttArray.length - 1].id === id) {
                 ganttArray[ganttArray.length - 1].duration += duration;
             } else {
+                // Senão, adiciona um novo bloco
                 ganttArray.push({ id: id, duration: duration });
             }
         }
@@ -244,7 +248,14 @@ P4,15,12,2</textarea>
                     // Pega o primeiro processo que chegou (FCFS).
                     const currentProcess = readyQueue.shift();
                     const executionTime = currentProcess.burstTime; // Executa o burst inteiro (não preemptivo).
-                    
+
+                    // Garante que o processo não execute antes de chegar (caso haja ociosidade)
+                    if (currentProcess.arrivalTime > currentTime) {
+                         const idleTime = currentProcess.arrivalTime - currentTime;
+                         addGanttBlock(ganttData, 'Ocioso', idleTime);
+                         currentTime = currentProcess.arrivalTime;
+                    }
+
                     addGanttBlock(ganttData, currentProcess.id, executionTime);
                     currentTime += executionTime;
 
@@ -259,8 +270,7 @@ P4,15,12,2</textarea>
                     addGanttBlock(ganttData, 'Ocioso', idleTime);
                     currentTime = processesCopy[processIndex].arrivalTime;
                 } else {
-                    // Se não há processos na fila e nenhum mais para chegar, termina (ou avança se houver erro).
-                     break; // Deve terminar aqui se tudo correu bem.
+                     break; // Fim da simulação
                 }
             }
             return { ganttData, processMap };
@@ -282,15 +292,23 @@ P4,15,12,2</textarea>
             while (completedProcesses < processesCopy.length) {
                  while (processIndex < processesCopy.length && processesCopy[processIndex].arrivalTime <= currentTime) {
                     readyQueue.push(processesCopy[processIndex]);
-                    // Ordena a fila de prontos pelo menor burst time TOTAL.
-                    readyQueue.sort((a, b) => a.burstTime - b.burstTime);
                     processIndex++;
                 }
 
                 if (readyQueue.length > 0) {
+                     // Ordena a fila de prontos pelo menor burst time TOTAL a cada decisão.
+                     readyQueue.sort((a, b) => a.burstTime - b.burstTime);
+
                     // Pega o processo com o menor burst time.
                     const currentProcess = readyQueue.shift();
                     const executionTime = currentProcess.burstTime; // Não preemptivo.
+
+                     // Garante que o processo não execute antes de chegar (caso haja ociosidade)
+                    if (currentProcess.arrivalTime > currentTime) {
+                         const idleTime = currentProcess.arrivalTime - currentTime;
+                         addGanttBlock(ganttData, 'Ocioso', idleTime);
+                         currentTime = currentProcess.arrivalTime;
+                    }
 
                     addGanttBlock(ganttData, currentProcess.id, executionTime);
                     currentTime += executionTime;
@@ -312,6 +330,7 @@ P4,15,12,2</textarea>
 
         /**
          * Simula o algoritmo Shortest Remaining Time First (SRTF - Preemptivo).
+         * Lógica tick-by-tick para preempção correta.
          */
         function simulateSRTF(processesCopy) {
             const ganttData = [];
@@ -320,67 +339,90 @@ P4,15,12,2</textarea>
             let readyQueue = [];
             let processIndex = 0;
             let completedProcesses = 0;
-            let currentProcess = null; // Processo atualmente em execução
+            let currentProcess = null; // Processo atualmente na CPU
 
             processesCopy.sort((a, b) => a.arrivalTime - b.arrivalTime);
-            // Adiciona a propriedade remainingTime inicial.
-            processesCopy.forEach(p => p.remainingTime = p.burstTime);
+            processesCopy.forEach(p => p.remainingTime = p.burstTime); // Inicializa tempo restante
 
             while (completedProcesses < processesCopy.length) {
-                // Adiciona processos que chegaram ao tempo atual.
-                while (processIndex < processesCopy.length && processesCopy[processIndex].arrivalTime <= currentTime) {
+                // Adiciona processos que chegaram neste exato tick de tempo
+                while (processIndex < processesCopy.length && processesCopy[processIndex].arrivalTime === currentTime) {
                     readyQueue.push(processesCopy[processIndex]);
                     processIndex++;
                 }
 
-                // Se houver processos na fila de prontos
+                // Se houver processos na fila de prontos, ordena pelo tempo restante
                 if (readyQueue.length > 0) {
-                     // Ordena a fila pelo menor tempo restante.
-                     readyQueue.sort((a, b) => a.remainingTime - b.remainingTime);
-                     const shortestReady = readyQueue[0];
+                    readyQueue.sort((a, b) => a.remainingTime - b.remainingTime);
+                    const shortestReady = readyQueue[0];
 
-                    // Verifica se deve preempter o processo atual.
-                    if (currentProcess && shortestReady.remainingTime < currentProcess.remainingTime) {
-                        // Preempção: Coloca o processo atual de volta na fila.
+                    // Verifica se o processo atual deve ser preemptado
+                    if (currentProcess && currentProcess.remainingTime > 0 && shortestReady.remainingTime < currentProcess.remainingTime) {
+                        // Preempção: Coloca o processo atual de volta na fila
                         readyQueue.push(currentProcess);
-                        currentProcess = null; // Limpa o processo atual para forçar a escolha do mais curto.
-                         // Reordena a fila após adicionar o processo preemptido.
-                         readyQueue.sort((a, b) => a.remainingTime - b.remainingTime);
+                        currentProcess = null; // Força a reescolha
+                        // Reordena após adicionar o preemptado
+                        readyQueue.sort((a, b) => a.remainingTime - b.remainingTime);
                     }
                 }
 
-                 // Se não há processo rodando, pega o mais curto da fila.
+                // Se a CPU está livre e há processos prontos, escolhe o mais curto
                 if (!currentProcess && readyQueue.length > 0) {
                     currentProcess = readyQueue.shift();
                 }
 
-                 // Executa ou fica ocioso por 1 unidade de tempo.
+                // Executa 1 tick do processo atual ou marca como ocioso
                 if (currentProcess) {
                     addGanttBlock(ganttData, currentProcess.id, 1);
                     currentProcess.remainingTime--;
 
+                    // Verifica se o processo terminou
                     if (currentProcess.remainingTime <= 0) {
-                        // Processo concluído.
-                        currentProcess.completionTime = currentTime + 1; // Conclui no final deste tick.
+                        currentProcess.completionTime = currentTime + 1; // Termina no *fim* deste tick
                         currentProcess.turnaroundTime = currentProcess.completionTime - currentProcess.arrivalTime;
                         currentProcess.waitingTime = currentProcess.turnaroundTime - currentProcess.burstTime;
                         completedProcesses++;
-                        currentProcess = null; // Libera a CPU.
+                        currentProcess = null; // Libera a CPU
                     }
                 } else {
-                    addGanttBlock(ganttData, 'Ocioso', 1);
+                     // Fica ocioso apenas se houver processos futuros ou na fila (evita ociosidade infinita no final)
+                     if (processIndex < processesCopy.length || readyQueue.length > 0) {
+                         addGanttBlock(ganttData, 'Ocioso', 1);
+                     } else if (completedProcesses < processesCopy.length) {
+                        // Situação de erro ou espera por processo que ainda não chegou mas deveria
+                        // Adiciona ocioso para avançar o tempo até a próxima chegada teórica
+                         if (processIndex < processesCopy.length) {
+                              const nextArrivalTime = processesCopy[processIndex].arrivalTime;
+                              const idleTime = nextArrivalTime - currentTime;
+                              addGanttBlock(ganttData, 'Ocioso', idleTime);
+                              currentTime = nextArrivalTime -1; // Ajusta para o loop incrementar para o tempo certo
+                         } else {
+                             // Não deveria chegar aqui se a lógica estiver correta
+                             break;
+                         }
+                     }
                 }
 
-                currentTime++;
+                currentTime++; // Avança o relógio global
 
-                // Condição de saída extra para evitar loop infinito em caso de erro lógico.
-                if (currentTime > 10000 && completedProcesses < processesCopy.length) {
-                     console.error("SRTF: Possível loop infinito detectado.");
-                     break;
-                 }
+                // Limite de segurança
+                if (currentTime > 50000 && completedProcesses < processesCopy.length) {
+                    console.error("SRTF: Simulação excedeu limite de tempo. Verificando loop infinito.");
+                    break;
+                }
             }
+             // Consolida métricas finais no processMap original
+             processesCopy.forEach(p => {
+                const mapEntry = processMap.get(p.id);
+                if (mapEntry) {
+                    mapEntry.completionTime = p.completionTime;
+                    mapEntry.turnaroundTime = p.turnaroundTime;
+                    mapEntry.waitingTime = p.waitingTime;
+                }
+             });
              return { ganttData, processMap };
         }
+
 
        /**
          * Simula o algoritmo Round Robin (RR - Preemptivo).
@@ -397,6 +439,7 @@ P4,15,12,2</textarea>
             processesCopy.forEach(p => p.remainingTime = p.burstTime);
 
             while (completedProcesses < processesCopy.length) {
+                 // Adiciona processos que chegaram ATÉ o tempo atual
                  while (processIndex < processesCopy.length && processesCopy[processIndex].arrivalTime <= currentTime) {
                     readyQueue.push(processesCopy[processIndex]);
                     processIndex++;
@@ -441,112 +484,174 @@ P4,15,12,2</textarea>
 
         /**
          * Simula o algoritmo Multi-Level Feedback Queue (MLFQ).
-         * (Lógica adaptada da versão anterior do simulador).
+         * Implementação tick-by-tick para preempção correta por prioridade.
          */
         function simulateMLFQ(processesCopy, quantum1, quantum2, agingTime) {
-            const gantt = { geral: [], q1: [], q2: [], q3: [] }; // Mantém as filas separadas para MLFQ
-            const processMap = new Map(processesCopy.map(p => [p.id, p]));
+            const gantt = { geral: [], q1: [], q2: [], q3: [] }; // Históricos de Gantt
+            const processMap = new Map(processesCopy.map(p => [p.id, p])); // Para métricas finais
             let currentTime = 0;
             let completedProcesses = 0;
-            const queues = [[], [], []];
-            let processIndex = 0;
+            const queues = [[], [], []]; // Filas de prontos (índice 0 = Prio 1, índice 2 = Prio 3)
+            let processIndex = 0; // Para percorrer a lista de processos que chegam
+            let currentProcess = null; // Processo atualmente na CPU
+            let currentQueueIndex = -1; // Índice da fila do processo atual
+            let currentQuantumRemaining = 0; // Tempo restante no quantum atual (para RR nas filas 1 e 2)
 
             processesCopy.sort((a, b) => a.arrivalTime - b.arrivalTime);
-             processesCopy.forEach(p => {
-                 p.remainingTime = p.burstTime;
-                 // Ajusta a prioridade inicial para o índice da fila (0, 1, 2)
-                 p.initialPriorityIndex = Math.max(0, Math.min(2, p.priority - 1));
-                 p.lastExecutionTime = p.arrivalTime; // Necessário para aging
+            processesCopy.forEach(p => {
+                p.remainingTime = p.burstTime;
+                p.initialPriorityIndex = Math.max(0, Math.min(2, p.priority - 1)); // Índice da fila inicial
+                p.currentPriorityIndex = p.initialPriorityIndex; // Prioridade atual (pode mudar)
+                p.lastReadyTime = p.arrivalTime; // Para cálculo de aging (tempo desde que ficou pronto)
             });
 
             while (completedProcesses < processesCopy.length) {
-                 // Adiciona processos que chegaram
-                 while (processIndex < processesCopy.length && processesCopy[processIndex].arrivalTime <= currentTime) {
+
+                // **PASSO A: CHEGADA DE PROCESSOS**
+                while (processIndex < processesCopy.length && processesCopy[processIndex].arrivalTime === currentTime) {
                     const arrivingProcess = processesCopy[processIndex];
-                    // Coloca na fila baseada na prioridade inicial definida no input
-                    queues[arrivingProcess.initialPriorityIndex].push(arrivingProcess);
+                    arrivingProcess.currentPriorityIndex = arrivingProcess.initialPriorityIndex; // Reseta prioridade na chegada
+                    arrivingProcess.lastReadyTime = currentTime; // Marca quando entrou na fila
+                    queues[arrivingProcess.currentPriorityIndex].push(arrivingProcess);
                     processIndex++;
                 }
 
-                 // Promoção por Aging
+                // **PASSO B: PROMOÇÃO POR AGING**
                 if (agingTime > 0) {
-                    for (let i = 2; i > 0; i--) { // Fila 3 (índice 2) e Fila 2 (índice 1)
-                        const processesToPromote = queues[i].filter(p => (currentTime - p.lastExecutionTime) >= agingTime);
-                        if (processesToPromote.length > 0) {
-                            queues[i] = queues[i].filter(p => !processesToPromote.includes(p));
-                            processesToPromote.forEach(p => {
-                                p.lastExecutionTime = currentTime;
-                                queues[i - 1].push(p);
-                            });
-                        }
+                    // Verifica das filas inferiores (2 e 1) para cima
+                    for (let i = 2; i > 0; i--) {
+                        const processesToPromote = [];
+                        // Filtra processos que esperaram o suficiente *e não estão rodando*
+                        queues[i] = queues[i].filter(p => {
+                            if ((currentTime - p.lastReadyTime) >= agingTime && p !== currentProcess) {
+                                processesToPromote.push(p);
+                                return false; // Remove da fila atual
+                            }
+                            return true; // Mantém na fila atual
+                        });
+                        // Adiciona promovidos à fila superior
+                        processesToPromote.forEach(p => {
+                            p.currentPriorityIndex = i - 1; // Atualiza prioridade
+                            p.lastReadyTime = currentTime; // Reseta tempo de espera na nova fila
+                            queues[i - 1].push(p);
+                        });
                     }
                 }
 
-                 // Seleciona processo para executar (Fila 1 > Fila 2 > Fila 3)
-                let currentProcess = null;
-                let currentQueueIndex = -1;
+                // **PASSO C: SELEÇÃO E PREEMPÇÃO**
+                let highestPriorityProcess = null;
+                let highestPriorityQueueIndex = -1;
+                // Encontra o processo de maior prioridade pronto
                 for (let i = 0; i < 3; i++) {
                     if (queues[i].length > 0) {
-                        currentProcess = queues[i].shift();
-                        currentQueueIndex = i;
+                        highestPriorityProcess = queues[i][0]; // Apenas olha, não remove ainda
+                        highestPriorityQueueIndex = i;
                         break;
                     }
                 }
 
-                // Ociosidade
-                if (currentProcess === null) {
-                    // Só avança se ainda houver processos para chegar ou se alguma fila não estiver vazia
-                    if (processIndex < processesCopy.length || queues.some(q => q.length > 0)) {
-                         addGanttBlock(gantt.geral, 'Ocioso', 1);
-                         addGanttBlock(gantt.q1, 'Ocioso', 1);
-                         addGanttBlock(gantt.q2, 'Ocioso', 1);
-                         addGanttBlock(gantt.q3, 'Ocioso', 1);
-                         currentTime++;
-                         continue;
-                    } else {
-                        break; // Fim da simulação
-                    }
+                // Verifica se deve ocorrer preempção
+                if (currentProcess && highestPriorityProcess && highestPriorityQueueIndex < currentQueueIndex) {
+                    // Sim, processo pronto tem prioridade maior que o atual!
+                    // Coloca o processo atual de volta na sua fila
+                    queues[currentQueueIndex].unshift(currentProcess); // Coloca no início da fila
+                    currentProcess.lastReadyTime = currentTime; // Marca que voltou pra fila agora
+                    currentProcess = null; // Libera a CPU
+                    currentQueueIndex = -1;
+                    currentQuantumRemaining = 0;
                 }
 
-
-                 // Calcula tempo de execução
-                let executionTime = 0;
-                if (currentQueueIndex === 0) { executionTime = Math.min(currentProcess.remainingTime, quantum1); }
-                else if (currentQueueIndex === 1) { executionTime = Math.min(currentProcess.remainingTime, quantum2); }
-                else { executionTime = currentProcess.remainingTime; }
-
-                // Registra no Gantt
-                addGanttBlock(gantt.geral, currentProcess.id, executionTime);
-                const ganttQueues = [gantt.q1, gantt.q2, gantt.q3];
-                addGanttBlock(ganttQueues[currentQueueIndex], currentProcess.id, executionTime);
-                for (let i = 0; i < 3; i++) {
-                    if (i !== currentQueueIndex) {
-                        addGanttBlock(ganttQueues[i], 'Ocioso', executionTime);
-                    }
+                // Se a CPU está ociosa, pega o processo de maior prioridade
+                if (!currentProcess && highestPriorityProcess) {
+                    currentProcess = queues[highestPriorityQueueIndex].shift(); // Agora sim remove da fila
+                    currentQueueIndex = highestPriorityQueueIndex;
+                    // Define o quantum para as filas RR
+                    if (currentQueueIndex === 0) currentQuantumRemaining = quantum1;
+                    else if (currentQueueIndex === 1) currentQuantumRemaining = quantum2;
+                    else currentQuantumRemaining = currentProcess.remainingTime; // Fila FCFS
                 }
-                
-                 // Atualiza estado
-                currentTime += executionTime;
-                currentProcess.remainingTime -= executionTime;
-                currentProcess.lastExecutionTime = currentTime;
-                
-                 // Finaliza ou Rebaixa
-                if (currentProcess.remainingTime <= 0) {
-                    completedProcesses++;
-                    // Busca o objeto original para atualizar as métricas
-                     const stats = processMap.get(currentProcess.id);
-                     if (stats) {
-                        stats.completionTime = currentTime;
+
+                // **PASSO D: EXECUÇÃO OU OCIOSIDADE**
+                if (currentProcess) {
+                    // Registra a execução no Gantt
+                    addGanttBlock(gantt.geral, currentProcess.id, 1);
+                    const ganttQueues = [gantt.q1, gantt.q2, gantt.q3];
+                    addGanttBlock(ganttQueues[currentQueueIndex], currentProcess.id, 1);
+                    // Registra ociosidade nas outras filas
+                    for (let i = 0; i < 3; i++) {
+                        if (i !== currentQueueIndex) {
+                            addGanttBlock(ganttQueues[i], 'Ocioso', 1);
+                        }
+                    }
+
+                    // Atualiza tempos
+                    currentProcess.remainingTime--;
+                    currentQuantumRemaining--;
+
+                    // **PASSO E: VERIFICA TÉRMINO OU FIM DO QUANTUM/REBAIXAMENTO**
+                    if (currentProcess.remainingTime <= 0) {
+                        // Processo terminou
+                        completedProcesses++;
+                        const stats = processMap.get(currentProcess.id);
+                        stats.completionTime = currentTime + 1; // Termina no fim deste tick
                         stats.turnaroundTime = stats.completionTime - stats.arrivalTime;
                         stats.waitingTime = stats.turnaroundTime - stats.burstTime;
-                     }
+                        currentProcess = null; // Libera CPU
+                        currentQueueIndex = -1;
+                        currentQuantumRemaining = 0;
+                    } else if (currentQuantumRemaining <= 0 && currentQueueIndex < 2) {
+                        // Quantum expirou (e não está na última fila) -> Rebaixar
+                        const nextQueueIndex = currentQueueIndex + 1;
+                        currentProcess.currentPriorityIndex = nextQueueIndex;
+                        currentProcess.lastReadyTime = currentTime + 1; // Entrará na fila no próximo tick
+                        queues[nextQueueIndex].push(currentProcess); // Adiciona na fila inferior
+                        currentProcess = null; // Libera CPU
+                        currentQueueIndex = -1;
+                        currentQuantumRemaining = 0;
+                    }
+                     // Se não terminou nem expirou quantum (ou está na Fila 3), continua rodando no próximo tick
+
                 } else {
-                    const nextQueue = Math.min(currentQueueIndex + 1, 2);
-                    queues[nextQueue].push(currentProcess);
+                    // Ninguém para rodar -> Ocioso
+                    addGanttBlock(gantt.geral, 'Ocioso', 1);
+                    addGanttBlock(gantt.q1, 'Ocioso', 1);
+                    addGanttBlock(gantt.q2, 'Ocioso', 1);
+                    addGanttBlock(gantt.q3, 'Ocioso', 1);
                 }
-            }
-            // Retorna o objeto gantt completo para MLFQ e o processMap.
-             return { gantt, processMap };
+
+                 // Atualiza o tempo de espera para processos que não rodaram
+                 queues.forEach((queue, index) => {
+                    queue.forEach(p => {
+                        if (p !== currentProcess) {
+                             // Se o lastReadyTime não foi atualizado neste tick, significa que ele está esperando
+                             // (Incrementamos o tempo de espera implicitamente pelo currentTime)
+                             // Mas precisamos ter certeza que lastReadyTime reflete quando ele ficou pronto *nesta fila*
+                             // A lógica de aging já usa isso.
+                        }
+                    });
+                 });
+
+
+                currentTime++; // Avança o relógio global
+
+                // Condição de saída de segurança
+                 if (currentTime > 50000 && completedProcesses < processesCopy.length) {
+                    console.error("MLFQ: Simulação excedeu limite de tempo.");
+                    break;
+                }
+            } // Fim do while principal
+
+             // Consolida métricas finais
+             processesCopy.forEach(p => {
+                 const mapEntry = processMap.get(p.id);
+                 if (mapEntry) {
+                     mapEntry.completionTime = p.completionTime || currentTime; // Se não completou por erro, usa o tempo final
+                     mapEntry.turnaroundTime = mapEntry.completionTime - p.arrivalTime;
+                     mapEntry.waitingTime = mapEntry.turnaroundTime - p.burstTime;
+                 }
+             });
+
+            return { gantt, processMap };
         }
 
 
@@ -575,7 +680,7 @@ P4,15,12,2</textarea>
                     id: parts[0].trim(), arrivalTime: parseInt(parts[1]), burstTime: parseInt(parts[2]),
                     // Guarda a prioridade original e inicializa outras props
                     priority: Math.max(1, Math.min(3, priority)),
-                    remainingTime: parseInt(parts[2]),
+                    // remainingTime e outras serão definidas dentro de cada simulação
                     completionTime: 0, waitingTime: 0, turnaroundTime: 0
                 };
             }).filter(p => p && !isNaN(p.arrivalTime) && !isNaN(p.burstTime) && p.burstTime > 0);
@@ -590,11 +695,17 @@ P4,15,12,2</textarea>
             // --- 2. EXECUTAR TODAS AS SIMULAÇÕES ---
             // É crucial usar deepCopyProcesses para cada simulação!
             const results = {};
-            results.fcfs = simulateFCFS(deepCopyProcesses(originalProcesses));
-            results.sjn = simulateSJN(deepCopyProcesses(originalProcesses));
-            results.srtf = simulateSRTF(deepCopyProcesses(originalProcesses));
-            results.rr = simulateRR(deepCopyProcesses(originalProcesses), quantumRR);
-            results.mlfq = simulateMLFQ(deepCopyProcesses(originalProcesses), quantum1, quantum2, agingTime);
+            try {
+                results.fcfs = simulateFCFS(deepCopyProcesses(originalProcesses));
+                results.sjn = simulateSJN(deepCopyProcesses(originalProcesses));
+                results.srtf = simulateSRTF(deepCopyProcesses(originalProcesses));
+                results.rr = simulateRR(deepCopyProcesses(originalProcesses), quantumRR);
+                results.mlfq = simulateMLFQ(deepCopyProcesses(originalProcesses), quantum1, quantum2, agingTime);
+            } catch (error) {
+                console.error("Erro durante a simulação:", error);
+                alert("Ocorreu um erro durante a simulação. Verifique o console para detalhes.");
+                return;
+            }
 
             // --- 3. RENDERIZAR TODOS OS RESULTADOS ---
             renderAllResults(results, originalProcesses);
@@ -608,6 +719,7 @@ P4,15,12,2</textarea>
 
         // Atribui uma cor única e consistente para cada ID de processo.
         function getProcessColor(processId) {
+            if (processId === 'Ocioso') return '#f1f5f9'; // Cor específica para ocioso
             if (!processColors[processId]) {
                 processColors[processId] = colorPalette[colorIndex % colorPalette.length];
                 colorIndex++;
@@ -620,9 +732,18 @@ P4,15,12,2</textarea>
          */
         function renderGantt(wrapperElement, ganttData, totalTime, originalProcesses, queueFilter = 0) {
             // Encontra os elementos dentro do wrapper fornecido.
+            if (!wrapperElement) {
+                console.error("Elemento wrapper do Gantt não encontrado para:", wrapperElement);
+                return;
+            }
             const ganttContainer = wrapperElement.querySelector('.gantt-chart-container');
             const timelineContainer = wrapperElement.querySelector('.timeline-container');
             const markerContainer = wrapperElement.querySelector('.arrival-marker-container');
+
+             if (!ganttContainer || !timelineContainer || !markerContainer) {
+                 console.error("Elementos internos do Gantt não encontrados no wrapper:", wrapperElement.id);
+                 return;
+             }
             
             // Limpa antes de redesenhar.
             ganttContainer.innerHTML = '';
@@ -633,32 +754,37 @@ P4,15,12,2</textarea>
             (ganttData || []).forEach(item => {
                 const bar = document.createElement('div');
                 const width = totalTime > 0 ? (item.duration / totalTime) * 100 : 0;
+                 if (width < 0.01) return; // Não renderiza barras minúsculas
                 bar.style.width = `${width}%`;
                 bar.className = 'gantt-bar';
                 // Mostra ID apenas se a barra for larga o suficiente
                 if (width > (item.id === 'Ocioso' ? 5 : 2.5)) { bar.textContent = item.id; }
                 bar.title = `${item.id} (${item.duration}ms)`;
+                bar.style.backgroundColor = getProcessColor(item.id);
                 if (item.id === 'Ocioso') { bar.classList.add('idle'); }
-                else { bar.style.backgroundColor = getProcessColor(item.id); }
+
                 ganttContainer.appendChild(bar);
             });
 
              // Desenha a régua de tempo
             if (totalTime > 0) {
-                const maxTicks = 20; // Ajustado para clareza
-                const niceIntervals = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
+                const maxTicks = 30; // Alvo para o número de marcadores na régua
+                const niceIntervals = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500]; // Intervalos "bonitos"
                 let tickInterval = 1;
+
+                // Encontra o menor intervalo "bonito" que não sobrecarrega a régua
                 for (const interval of niceIntervals) {
                     if (totalTime / interval <= maxTicks) {
                         tickInterval = interval;
                         break;
                     }
                 }
-                if (totalTime / tickInterval > maxTicks * 1.5) { // Evita intervalos muito grandes se o último 'nice' for pequeno demais
-                     let magnitude = Math.pow(10, Math.floor(Math.log10(totalTime / maxTicks)));
-                     tickInterval = Math.ceil((totalTime / maxTicks) / magnitude) * magnitude;
-                 }
-
+                // Se nenhum intervalo "bonito" servir (tempo total muito grande), calcula um.
+                if (totalTime / tickInterval > maxTicks * 1.5) {
+                    const magnitude = Math.pow(10, Math.floor(Math.log10(totalTime / maxTicks)));
+                    tickInterval = Math.ceil(totalTime / maxTicks / magnitude) * magnitude;
+                    if (tickInterval <= 0) tickInterval = 1; // Garante intervalo positivo
+                }
 
                 const ticks = new Set([0]); // Garante o tick 0
                 for (let time = tickInterval; time < totalTime; time += tickInterval) {
@@ -700,6 +826,8 @@ P4,15,12,2</textarea>
             section.id = `${algoName}-results-section`;
             section.classList.add('mt-8', 'border-t', 'pt-8');
 
+            // --- Estrutura HTML ---
+             // Gantt Geral (todos os algoritmos têm)
             let ganttHtml = `
                 <h3 class="text-xl font-semibold mb-3">${algoTitle}</h3>
                 <div class="gantt-wrapper" id="gantt-${algoName}-geral-wrapper">
@@ -708,7 +836,7 @@ P4,15,12,2</textarea>
                      <div class="timeline-container"></div>
                 </div>`;
 
-             // Adiciona gráficos de fila específicos para MLFQ
+             // Gantts específicos das filas para MLFQ
              if (algoName === 'mlfq') {
                  ganttHtml += `
                  <h4 class="text-lg font-medium mt-4">Gantt Fila 1 (RR)</h4>
@@ -731,6 +859,7 @@ P4,15,12,2</textarea>
                  </div>`;
              }
 
+             // Tabela de Métricas Detalhadas
             let tableHtml = `
                 <h4 class="text-lg font-medium mt-6">Métricas Detalhadas (${algoTitle})</h4>
                 <div class="overflow-x-auto mt-2 rounded-lg border">
@@ -747,20 +876,25 @@ P4,15,12,2</textarea>
                         </thead>
                         <tbody id="table-${algoName}" class="bg-white divide-y divide-gray-200">`;
 
+            // --- Cálculo das Médias e Preenchimento da Tabela ---
             let totalTurnaround = 0;
             let totalWaiting = 0;
-            // Ordena processos por ID para a tabela
+            let processCount = 0;
             const sortedProcesses = Array.from(resultData.processMap.values()).sort((a,b) => {
-                 // Extrai números dos IDs para ordenação numérica correta (P1, P2, P10)
                  const numA = parseInt(a.id.replace(/[^0-9]/g, ''), 10);
                  const numB = parseInt(b.id.replace(/[^0-9]/g, ''), 10);
+                 if (isNaN(numA) || isNaN(numB)) return a.id.localeCompare(b.id);
                  return numA - numB;
             });
 
-
             sortedProcesses.forEach(p => {
+                 // Garante que métricas negativas (possíveis por erros de arredondamento mínimo) sejam zeradas
+                 p.turnaroundTime = Math.max(0, p.turnaroundTime);
+                 p.waitingTime = Math.max(0, p.waitingTime);
+
                 totalTurnaround += p.turnaroundTime;
                 totalWaiting += p.waitingTime;
+                processCount++;
                 tableHtml += `<tr>
                     <td class="table-cell font-medium">${p.id}</td>
                     <td class="table-cell">${p.arrivalTime}</td>
@@ -773,8 +907,9 @@ P4,15,12,2</textarea>
 
             tableHtml += `</tbody></table></div>`;
 
-            const avgTurnaround = totalTurnaround / resultData.processMap.size;
-            const avgWaiting = totalWaiting / resultData.processMap.size;
+            // --- HTML das Métricas Médias ---
+            const avgTurnaround = processCount > 0 ? totalTurnaround / processCount : 0;
+            const avgWaiting = processCount > 0 ? totalWaiting / processCount : 0;
             const metricsHtml = `
                 <div class="mt-4 text-center bg-gray-100 p-3 rounded-lg">
                     <h4 class="text-md font-medium">Métricas Médias (${algoTitle})</h4>
@@ -786,7 +921,7 @@ P4,15,12,2</textarea>
 
             section.innerHTML = ganttHtml + tableHtml + metricsHtml;
 
-            // Retorna a seção e as médias calculadas para a tabela de comparação
+            // Retorna a seção e as médias calculadas
              return { section, avgTurnaround, avgWaiting };
         }
 
@@ -810,67 +945,70 @@ P4,15,12,2</textarea>
 
             const comparisonData = []; // Para armazenar as médias de cada algoritmo
 
-            // Renderiza FCFS
-            const fcfsRender = createAlgorithmResultSection('fcfs', 'FCFS', allResults.fcfs, originalProcesses);
-            document.getElementById('fcfs-results').appendChild(fcfsRender.section);
-             comparisonData.push({ name: 'FCFS', tmt: fcfsRender.avgTurnaround, tme: fcfsRender.avgWaiting });
+             // Define os títulos
+             const titles = {
+                 fcfs: 'FCFS (First-Come, First-Served)',
+                 sjn: 'SJN (Shortest Job Next)',
+                 srtf: 'SRTF (Shortest Remaining Time First)',
+                 rr: 'Round Robin',
+                 mlfq: 'MLFQ (Multi-Level Feedback Queue)'
+             };
 
-            // Renderiza SJN
-            const sjnRender = createAlgorithmResultSection('sjn', 'SJN', allResults.sjn, originalProcesses);
-            document.getElementById('sjn-results').appendChild(sjnRender.section);
-            comparisonData.push({ name: 'SJN', tmt: sjnRender.avgTurnaround, tme: sjnRender.avgWaiting });
-
-            // Renderiza SRTF
-            const srtfRender = createAlgorithmResultSection('srtf', 'SRTF', allResults.srtf, originalProcesses);
-            document.getElementById('srtf-results').appendChild(srtfRender.section);
-            comparisonData.push({ name: 'SRTF', tmt: srtfRender.avgTurnaround, tme: srtfRender.avgWaiting });
-
-            // Renderiza RR
-            const rrRender = createAlgorithmResultSection('rr', 'Round Robin', allResults.rr, originalProcesses);
-            document.getElementById('rr-results').appendChild(rrRender.section);
-             comparisonData.push({ name: 'Round Robin', tmt: rrRender.avgTurnaround, tme: rrRender.avgWaiting });
-
-            // Renderiza MLFQ
-            const mlfqRender = createAlgorithmResultSection('mlfq', 'MLFQ', allResults.mlfq, originalProcesses);
-            document.getElementById('mlfq-results').appendChild(mlfqRender.section);
-             comparisonData.push({ name: 'MLFQ', tmt: mlfqRender.avgTurnaround, tme: mlfqRender.avgWaiting });
-
+            // Itera sobre cada algoritmo para criar sua seção e obter métricas
+             resultKeys.forEach(key => {
+                 if (allResults[key]) {
+                     const renderResult = createAlgorithmResultSection(key, titles[key], allResults[key], originalProcesses);
+                     document.getElementById(`${key}-results`).appendChild(renderResult.section);
+                     comparisonData.push({ name: titles[key], tmt: renderResult.avgTurnaround, tme: renderResult.avgWaiting });
+                 } else {
+                     console.warn(`Resultados para ${key} não encontrados.`);
+                 }
+             });
 
             // Chama renderGantt para cada gráfico após a estrutura HTML ser criada
-            const totalTimeFCFS = allResults.fcfs.ganttData.reduce((sum, item) => sum + item.duration, 0);
-            renderGantt(document.getElementById('gantt-fcfs-geral-wrapper'), allResults.fcfs.ganttData, totalTimeFCFS, originalProcesses);
+            try {
+                const totalTimeFCFS = allResults.fcfs?.ganttData?.reduce((sum, item) => sum + item.duration, 0) || 0;
+                if (totalTimeFCFS > 0) renderGantt(document.getElementById('gantt-fcfs-geral-wrapper'), allResults.fcfs.ganttData, totalTimeFCFS, originalProcesses);
 
-            const totalTimeSJN = allResults.sjn.ganttData.reduce((sum, item) => sum + item.duration, 0);
-            renderGantt(document.getElementById('gantt-sjn-geral-wrapper'), allResults.sjn.ganttData, totalTimeSJN, originalProcesses);
+                const totalTimeSJN = allResults.sjn?.ganttData?.reduce((sum, item) => sum + item.duration, 0) || 0;
+                if (totalTimeSJN > 0) renderGantt(document.getElementById('gantt-sjn-geral-wrapper'), allResults.sjn.ganttData, totalTimeSJN, originalProcesses);
 
-            const totalTimeSRTF = allResults.srtf.ganttData.reduce((sum, item) => sum + item.duration, 0);
-            renderGantt(document.getElementById('gantt-srtf-geral-wrapper'), allResults.srtf.ganttData, totalTimeSRTF, originalProcesses);
+                const totalTimeSRTF = allResults.srtf?.ganttData?.reduce((sum, item) => sum + item.duration, 0) || 0;
+                if (totalTimeSRTF > 0) renderGantt(document.getElementById('gantt-srtf-geral-wrapper'), allResults.srtf.ganttData, totalTimeSRTF, originalProcesses);
 
-            const totalTimeRR = allResults.rr.ganttData.reduce((sum, item) => sum + item.duration, 0);
-            renderGantt(document.getElementById('gantt-rr-geral-wrapper'), allResults.rr.ganttData, totalTimeRR, originalProcesses);
+                const totalTimeRR = allResults.rr?.ganttData?.reduce((sum, item) => sum + item.duration, 0) || 0;
+                if (totalTimeRR > 0) renderGantt(document.getElementById('gantt-rr-geral-wrapper'), allResults.rr.ganttData, totalTimeRR, originalProcesses);
 
-            const totalTimeMLFQ = allResults.mlfq.gantt.geral.reduce((sum, item) => sum + item.duration, 0);
-            renderGantt(document.getElementById('gantt-mlfq-geral-wrapper'), allResults.mlfq.gantt.geral, totalTimeMLFQ, originalProcesses, 0);
-            renderGantt(document.getElementById('gantt-mlfq-q1-wrapper'), allResults.mlfq.gantt.q1, totalTimeMLFQ, originalProcesses, 1);
-            renderGantt(document.getElementById('gantt-mlfq-q2-wrapper'), allResults.mlfq.gantt.q2, totalTimeMLFQ, originalProcesses, 2);
-            renderGantt(document.getElementById('gantt-mlfq-q3-wrapper'), allResults.mlfq.gantt.q3, totalTimeMLFQ, originalProcesses, 3);
+                const totalTimeMLFQ = allResults.mlfq?.gantt?.geral?.reduce((sum, item) => sum + item.duration, 0) || 0;
+                if (totalTimeMLFQ > 0 && allResults.mlfq.gantt) {
+                    renderGantt(document.getElementById('gantt-mlfq-geral-wrapper'), allResults.mlfq.gantt.geral, totalTimeMLFQ, originalProcesses, 0);
+                    renderGantt(document.getElementById('gantt-mlfq-q1-wrapper'), allResults.mlfq.gantt.q1, totalTimeMLFQ, originalProcesses, 1);
+                    renderGantt(document.getElementById('gantt-mlfq-q2-wrapper'), allResults.mlfq.gantt.q2, totalTimeMLFQ, originalProcesses, 2);
+                    renderGantt(document.getElementById('gantt-mlfq-q3-wrapper'), allResults.mlfq.gantt.q3, totalTimeMLFQ, originalProcesses, 3);
+                }
+            } catch (error) {
+                 console.error("Erro durante a renderização dos gráficos Gantt:", error);
+                 alert("Erro ao renderizar os gráficos. Verifique o console.");
+            }
 
 
              // Preenche a tabela de comparação final
              const comparisonTableBody = document.getElementById('comparison-table-body');
-             // Encontra os menores valores de TMT e TME
-             const bestTMT = Math.min(...comparisonData.map(d => d.tmt));
-             const bestTME = Math.min(...comparisonData.map(d => d.tme));
+             if (comparisonData.length > 0) {
+                 // Encontra os menores valores de TMT e TME
+                 const bestTMT = Math.min(...comparisonData.map(d => d.tmt));
+                 const bestTME = Math.min(...comparisonData.map(d => d.tme));
 
-             comparisonData.forEach(data => {
-                 const row = document.createElement('tr');
-                 row.innerHTML = `
-                     <td class="table-cell font-medium">${data.name}</td>
-                     <td class="table-cell ${data.tmt === bestTMT ? 'best-metric' : ''}">${data.tmt.toFixed(2)}</td>
-                     <td class="table-cell ${data.tme === bestTME ? 'best-metric' : ''}">${data.tme.toFixed(2)}</td>
-                 `;
-                 comparisonTableBody.appendChild(row);
-             });
+                 comparisonData.forEach(data => {
+                     const row = document.createElement('tr');
+                     row.innerHTML = `
+                         <td class="table-cell font-medium">${data.name}</td>
+                         <td class="table-cell ${data.tmt === bestTMT ? 'best-metric' : ''}">${data.tmt.toFixed(2)}</td>
+                         <td class="table-cell ${data.tme === bestTME ? 'best-metric' : ''}">${data.tme.toFixed(2)}</td>
+                     `;
+                     comparisonTableBody.appendChild(row);
+                 });
+             }
         }
 
     </script>
